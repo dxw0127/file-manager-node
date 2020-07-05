@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const fs = require('fs');
 var multer  = require('multer')
-
+const dirPath = '..'
 app.use(express.json());
 
 const apiResponse = (res, status = 200) => (data, success = true, errorMsg = null, error = null) => {
@@ -25,8 +25,11 @@ app.use(function(req, res, next) {
     next();
 });
 
+// 设置静态资源目录
+app.use(express.static('../'));
+
 app.get('/filemanager/list', (req, res) => {
-    const path = req.query.path || '/';
+    const path = dirPath + req.query.path || '/';
 
     fs.readdir(path, (err, files) => {
         if (err) {
@@ -63,7 +66,7 @@ app.get('/filemanager/list', (req, res) => {
 
 
 app.post('/filemanager/dir/create', (req, res) => {
-    const fullPath = req.body.path + '/' + req.body.directory;
+    const fullPath = dirPath + req.body.path + '/' + req.body.directory;
     
     if (fs.existsSync(fullPath)) {
         return apiError(res)('The folder already exist', err);
@@ -78,7 +81,7 @@ app.post('/filemanager/dir/create', (req, res) => {
 
 
 app.get('/filemanager/file/content', (req, res) => {
-    let path = req.query.path;
+    let path = dirPath + req.query.path;
     return res.download(path);
 });
 
@@ -88,8 +91,8 @@ app.post('/filemanager/items/copy', (req, res) => {
 
     const promises = (filenames || []).map(f => {
         return new Promise((resolve, reject) => {
-            const oldPath = path + '/' + f;
-            const newPath = destination + '/' + f;
+            const oldPath = dirPath + path + '/' + f;
+            const newPath = dirPath + destination + '/' + f;
             fs.copyFile(oldPath, newPath, err => {
                 const response = {
                     success: !err,
@@ -115,8 +118,8 @@ app.post('/filemanager/items/move', (req, res) => {
 
     const promises = (filenames || []).map(f => {
         return new Promise((resolve, reject) => {
-            const oldPath = path + '/' + f;
-            const newPath = destination + '/' + f;
+            const oldPath = dirPath + path + '/' + f;
+            const newPath = dirPath + destination + '/' + f;
             fs.rename(oldPath, newPath, err => {
                 const response = {
                     success: !err,
@@ -139,9 +142,8 @@ app.post('/filemanager/items/move', (req, res) => {
 
 app.post('/filemanager/item/move', (req, res) => {
     const { path, destination } = req.body;
-
     const promise = new Promise((resolve, reject) => {
-        fs.rename(path, destination, err => {
+        fs.rename(dirPath + path, dirPath + destination, err => {
             const response = {
                 success: !err,
                 error: err,
@@ -164,7 +166,7 @@ app.post('/filemanager/items/upload', (req, res, next) => {
         storage: multer.diskStorage({
             destination: (req, file, cb) => {
                 // we pass the path by headers because is not present in params at this point
-                cb(null, req.headers.path);
+                cb(null,dirPath + req.headers.path);
             },
             filename: (req, file, cb) => {
                 cb(null, file.originalname);
@@ -184,26 +186,47 @@ app.post('/filemanager/items/upload', (req, res, next) => {
 });
 
 app.post('/filemanager/items/remove', (req, res) => {
-    const { path, filenames, recursive } = req.body;
-    const promises = (filenames || []).map(f => {
-        const fullPath = path + '/' + f;
+    const { path, filenames, selectedFiles, recursive } = req.body;
+    console.log(filenames)
+    const promises = (selectedFiles || []).map(item => {
+        const fullPath = dirPath + path + '/' + item.name;
+        console.log(item,fullPath)
         return new Promise((resolve, reject) => {
-            fs.unlink(fullPath, err => {
-                const response = {
-                    success: !err,
-                    error: err,
-                    path,
-                    filename: f,
-                    fullPath
-                };
-                return err ? reject(response) : resolve(response);
-            });
+            if(item.type === 'dir') {
+                fs.rmdir(fullPath, {recursive}, err => {
+                    const response = {
+                        success: !err,
+                        error: err,
+                        path,
+                        filename:item.name,
+                        fullPath
+                    };
+                    
+                    return err ? reject(response) : resolve(response);
+                });
+
+            } else {
+
+                fs.unlink(fullPath, err => {
+                    const response = {
+                        success: !err,
+                        error: err,
+                        path,
+                        filename:item.name,
+                        fullPath
+                    };
+                    return err ? reject(response) : resolve(response);
+                });
+
+            }
+           
         });
     });
 
     Promise.all(promises).then(values => {
         return apiResponse(res)(values);
     }).catch(err => {
+        console.log(err)
         return apiError(res)('An error ocurred deleting file', err);
     });
     
